@@ -1,33 +1,3 @@
-def buildAndPushImage(String FRONTEND_IMAGE, String DH_CREDENTIALS, String Buildcontext){
-    def frontend= docker.build("${FRONTEND_IMAGE}:${GIT_COMMIT}","${Buildcontext}")
-
-    docker.withRegistry("${env.REGISTRY_URL}","${DH_CREDENTIALS}"){
-        frontend.push()
-    }
-}
-
-def promoteImage(String sourceImage, String targetImage, String source_DH_Credentials, String target_DH_Credentials){
-    docker.withRegistry("${env.REGISTRY_URL}","${source_DH_Credentials}"){
-        docker.image("${sourceImage}:${GIT_COMMIT}").pull()
-    }
-
-    sh "docker tag ${sourceImage}:${GIT_COMMIT} ${targetImage}:${GIT_COMMIT}"
-
-    docker.withRegistry("${env.REGISTRY_URL}","${target_DH_Credentials}"){
-        docker.image("${targetImage}:${GIT_COMMIT}").push()
-    }
-}
-
-def deployToEks(String cluster_credentials, String namespace, String environment){
-    withKubeConfig(credentialsId: "${cluster_credentials}", namespace: "${namespace}"){
-        sh "echo deploying to ${namespace} namespace..."
-        sh "sed -i -e 's/{{ENV}}/${environment}/g' -e 's/{{COMMITID}}/${env.GIT_COMMIT}/g' k8s/frontend-deployment.yml "
-        sh "sed -i 's/{{ENV}}/${environment}/g' k8s/app3-ingress.yml"
-        sh 'kubectl apply -f k8s/frontend-deployment.yml'
-        sh 'kubectl apply -f k8s/frontend-service.yml'
-        sh 'kubectl apply -f k8s/app3-ingress.yml'
-    }
-}
 
 pipeline{
     agent any
@@ -74,9 +44,19 @@ pipeline{
             }
             steps{
                 script{
-
                     buildAndPushImage("${env.FRONTEND_IMAGE_DEV}","${env.DEV_DH_CREDENTIALS}", "${env.BUILD_CONTEXT}")
+                }
+            }
+        }
 
+        stage("Dev deploy to eks"){
+            when {
+                expression{
+                    params.Environment == "dev"
+                }
+            }
+            steps{
+                script{
                     deployToEks("${env.CLUSTER_CREDENTIALS}","${env.DEV_NS}","${params.Environment}")
                 }
             }
@@ -90,9 +70,19 @@ pipeline{
             }
             steps{
                 script{
-
                     promoteImage("${env.FRONTEND_IMAGE_DEV}","${env.FRONTEND_IMAGE_QA}","${env.DEV_DH_CREDENTIALS}","${env.QA_DH_CREDENTIALS}")
+                }
+            }
+        }
 
+        stage("QA deploy to eks"){
+            when{
+                expression{
+                    params.Environment == "qa"
+                }
+            }
+            steps{
+                script{
                     deployToEks("${env.CLUSTER_CREDENTIALS}","${env.QA_NS}","${params.Environment}")
                 }
             }
@@ -106,9 +96,19 @@ pipeline{
             }
             steps{
                 script{
-
                     promoteImage("${env.FRONTEND_IMAGE_QA}","${env.FRONTEND_IMAGE_UAT}","${env.QA_DH_CREDENTIALS}","${env.UAT_DH_CREDENTIALS}")
+                }
+            }
+        }
 
+        stage("UAT deploy to eks"){
+            when {
+                expression{
+                    params.Environment == "uat"
+                }
+            }
+            steps{
+                script{
                     deployToEks("${env.CLUSTER_CREDENTIALS}","${env.UAT_NS}","${params.Environment}")
                 }
             }
@@ -135,9 +135,19 @@ pipeline{
             }
             steps{
                 script{
-
                     promoteImage("${env.FRONTEND_IMAGE_UAT}","${env.FRONTEND_IMAGE_PROD}","${env.UAT_DH_CREDENTIALS}","${env.PROD_DH_CREDENTIALS}")
+                }
+            }
+        }
 
+        stage("PROD deploy to eks"){
+            when{
+                expression{
+                    params.Environment == "prod"
+                }
+            }
+            steps{
+                script{
                     deployToEks("${env.CLUSTER_CREDENTIALS}","${env.PROD_NS}","${params.Environment}")
                 }
             }
@@ -147,5 +157,36 @@ pipeline{
         always{
             deleteDir()
         }
+    }
+}
+
+def buildAndPushImage(String FRONTEND_IMAGE, String DH_CREDENTIALS, String Buildcontext){
+    def frontend= docker.build("${FRONTEND_IMAGE}:${GIT_COMMIT}","${Buildcontext}")
+
+    docker.withRegistry("${env.REGISTRY_URL}","${DH_CREDENTIALS}"){
+        frontend.push()
+    }
+}
+
+def promoteImage(String sourceImage, String targetImage, String source_DH_Credentials, String target_DH_Credentials){
+    docker.withRegistry("${env.REGISTRY_URL}","${source_DH_Credentials}"){
+        docker.image("${sourceImage}:${GIT_COMMIT}").pull()
+    }
+
+    sh "docker tag ${sourceImage}:${GIT_COMMIT} ${targetImage}:${GIT_COMMIT}"
+
+    docker.withRegistry("${env.REGISTRY_URL}","${target_DH_Credentials}"){
+        docker.image("${targetImage}:${GIT_COMMIT}").push()
+    }
+}
+
+def deployToEks(String cluster_credentials, String namespace, String environment){
+    withKubeConfig(credentialsId: "${cluster_credentials}", namespace: "${namespace}"){
+        sh "echo deploying to ${namespace} namespace..."
+        sh "sed -i -e 's/{{ENV}}/${environment}/g' -e 's/{{COMMITID}}/${env.GIT_COMMIT}/g' k8s/frontend-deployment.yml "
+        sh "sed -i 's/{{ENV}}/${environment}/g' k8s/app3-ingress.yml"
+        sh 'kubectl apply -f k8s/frontend-deployment.yml'
+        sh 'kubectl apply -f k8s/frontend-service.yml'
+        sh 'kubectl apply -f k8s/app3-ingress.yml'
     }
 }
